@@ -34,6 +34,7 @@ import org.eclipse.debug.core.model.IProcess;
 import org.eclipse.debug.core.model.IStreamsProxy;
 import org.keplerproject.ldt.debug.core.LuaDebuggerPlugin;
 import org.keplerproject.ldt.debug.core.model.LuaDebugServer;
+import org.keplerproject.ldt.debug.core.model.LuaDebugServerConnectionTCP;
 import org.keplerproject.ldt.debug.core.model.LuaDebugTarget;
 import org.keplerproject.ldt.internal.launching.LuaInterpreter;
 import org.keplerproject.ldt.internal.launching.LuaRuntime;
@@ -132,7 +133,8 @@ public class LuaLaunchDelegate implements ILaunchConfigurationDelegate {
 		
 		LuaDebugServer server = null;
 		try {
-			server = new LuaDebugServer(controlHost, controlPort, eventPort);
+			server = new LuaDebugServer(new LuaDebugServerConnectionTCP(controlPort));
+			//server = new LuaDebugServer(controlHost, controlPort, eventPort);
 
 		} catch (IOException e) {
 			throw new DebugException(new Status(IStatus.ERROR, DebugPlugin

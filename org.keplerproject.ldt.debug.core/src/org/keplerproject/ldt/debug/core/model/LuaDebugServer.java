@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -22,27 +23,29 @@ import org.eclipse.debug.core.model.IDebugTarget;
  * @author jasonsantos
  */
 public class LuaDebugServer {
-	String					fHost;
-	int						fControlPort;
-	int						fEventPort;
+//	String					fHost;
+//	int						fControlPort;
+//	int						fEventPort;
+	LuaDebugServerConnection	fConnection;
 
 	private LuaDebugElement	fElement;
 
 	// sockets to communicate with VM
-	private ServerSocket	fRemdebugServer;
-	private Socket			fRemdebugSocket;
-	private Socket			fRemdebugEventSocket;
-	private PrintWriter		fRequestWriter;
-	private BufferedReader	fRequestReader;
+//	private ServerSocket	fRemdebugServer;
+//	private Socket			fRemdebugSocket;
+//	private Socket			fRemdebugEventSocket;
+//	private PrintWriter		fRequestWriter;
+//	private BufferedReader	fRequestReader;
 
 	// reader for event data
-	private ServerSocket	fEventServer;
-	private BufferedReader	fEventReader;
+//	private ServerSocket	fEventServer;
+//	private BufferedReader	fEventReader;
 
-	private boolean			fStarted;
-	private boolean			fListening;
+//	private boolean			fStarted;
+//	private boolean			fCouldntStart;
+//	private boolean			fListening;
 
-	private final Job		fRequestJob	= new Job("Remdebug Request Dispatcher") {
+	private final Job		fRequestJob	= new Job("Starting debug server") {
 		@Override
 		protected IStatus run(IProgressMonitor monitor) {
 
@@ -57,7 +60,9 @@ public class LuaDebugServer {
 			}
 
 			terminate();
-			fElement.getLuaDebugTarget().terminated();
+			if (fElement != null) { //fElement may not have been created yet - this race condition is probably a bug and ignoring it not the correct solution
+				fElement.getLuaDebugTarget().terminated();
+			}
 			return Status.CANCEL_STATUS;
 		}
 	};
@@ -67,11 +72,8 @@ public class LuaDebugServer {
 		protected IStatus run(IProgressMonitor monitor) {
 			LuaDebugTarget target = null;
 
-			while (!fStarted)
-				Thread.yield();
-
 			try {
-				String event = receive();
+				String event = fConnection.receiveEvent();
 				if (event == null) {
 					terminate();
 					return Status.CANCEL_STATUS;
@@ -89,27 +91,28 @@ public class LuaDebugServer {
 					}
 
 					if (!target.isTerminated())
-						event = receive();
+						event = fConnection.receiveEvent();
 				}
 			} catch (IOException e) {
 				target.terminated();
-			} catch (DebugException e) {
+			} /*catch (DebugException e) {
 				System.out.println("Error receiving event:" + e.getMessage());
 				target.terminated();
-			}
+			}*/
 			terminate();
 			return Status.OK_STATUS;
 		}
 	};
 
-	public LuaDebugServer(String host, int controlPort, int eventPort)
+	public LuaDebugServer(LuaDebugServerConnection connection)
 			throws DebugException, IOException {
 
-		fControlPort = controlPort;
-		fEventPort = eventPort;
-		fHost = host;
+		//fControlPort = controlPort;
+		//fEventPort = eventPort;
+		//fHost = host;
+		fConnection = connection;
 
-		fRequestJob.setSystem(true);
+		//fRequestJob.setSystem(true);
 		fEventsJob.setSystem(true);
 
 		fRequestJob.schedule();
@@ -120,28 +123,18 @@ public class LuaDebugServer {
 	 */
 	private void start() throws DebugException, IOException {
 
-		fRemdebugServer = new ServerSocket(fControlPort);
-		fRemdebugServer.setSoTimeout(5000);
-		fRemdebugSocket = fRemdebugServer.accept();
-		fRemdebugServer.close();
+		try {
+			fConnection.acceptRequestConnection();
+		} catch (SocketTimeoutException e) { //and probably others...
+//			fCouldntStart = true;
+			throw e;
+		}
 
-		fRequestWriter = new PrintWriter(fRemdebugSocket.getOutputStream());
-		fRequestReader = new BufferedReader(new InputStreamReader(
-				fRemdebugSocket.getInputStream()));
+//		fStarted = true;
 
-		fStarted = true;
-
-		startListen();
+		fConnection.acceptEventConnection();
 
 		fEventsJob.schedule();
-	}
-
-	private synchronized void startListen() throws IOException {
-		if (!fListening) {
-			fEventServer = new ServerSocket(fEventPort);
-			fRemdebugEventSocket = fEventServer.accept();
-			fListening = true;
-		}
 	}
 
 	public void register(IDebugTarget target) throws DebugException {
@@ -151,19 +144,17 @@ public class LuaDebugServer {
 			/*
 			 * TODO create several event ports for multithreading debuggers
 			 */
-			while (!fStarted)
-				Thread.yield();
-
-			String result = sendRequest("SUBSCRIBE " + fEventPort);
+			fConnection.waitForRequestConnection();
+			//FIXME what if it fails?
+			
+			//FIXME wait until the start job is accepting an event connection
+			
+			String result = fConnection.sendEventSubscriptionRequest();
 
 			if (!result.startsWith("200"))
 				throw new IOException("Can't connect to event port");
-
-			while (!fListening)
-				Thread.yield();
-
-			fEventReader = new BufferedReader(new InputStreamReader(
-					fRemdebugEventSocket.getInputStream()));
+			
+			fConnection.waitForEventConnection();
 
 		} catch (UnknownHostException e) {
 			fElement.requestFailed("Unable to connect to Remdebug", e);
@@ -183,36 +174,14 @@ public class LuaDebugServer {
 	}
 
 	public String sendRequest(String request) throws IOException {
-		synchronized (fRemdebugSocket) {
-			System.out.println(">>> " + request);
-			fRequestWriter.println(request);
-			fRequestWriter.flush();
-			String response = fRequestReader.readLine();
-			System.out.println("<<< " + response);
-			return response;
-		}
-	}
-
-	public String receive() throws IOException, DebugException {
-		startListen();
-		if (fEventReader != null) {
-			String response = fEventReader.readLine();
-			System.out.println("<-- " + response);
-			return response;
-		} else
-			return "100 Continue";
+		return fConnection.sendRequest(request);
 	}
 
 	public void terminate() {
 		fRequestJob.cancel();
 		fEventsJob.cancel();
 		try {
-			fRequestWriter.close();
-			fRequestReader.close();
-			fRemdebugSocket.close();
-			fRemdebugServer.close();
-			fEventReader.close();
-			fEventServer.close();
+			fConnection.close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
