@@ -120,7 +120,7 @@
          point="org.eclipse.debug.ui.launchConfigurationTypeImages">
       <launchConfigurationTypeImage
             configTypeID="lua.launchType"
-            icon="icons/luaeclipse.icon.small.lua.gif"
+            icon="icons/luaeclipse.icon.small.lua.png"
             id="lua.typeImage">
       </launchConfigurationTypeImage>
    </extension>
