@@ -69,14 +69,13 @@ public class LuaLaunchDelegate implements ILaunchConfigurationDelegate {
 		String controlHost = "localhost";
 		int controlPort = -1;
 		int eventPort = -1;
-		IProcess proc;
+		IProcess proc = null;
 		
 		if (remoteDbgEnabled) {
 			controlPort = remoteDbgPort;
 			eventPort = findFreePort();
 			if (controlPort == -1 || eventPort == -1)
 				error("Could not allocate debug port", null);
-			proc = new RemoteProcess(launch, "Remote Lua Debugger");
 			
 		} else {
 			String script = configuration.getAttribute(
@@ -131,20 +130,32 @@ public class LuaLaunchDelegate implements ILaunchConfigurationDelegate {
 					"Standard Lua Remdebug Engine");
 		}
 		
-		LuaDebugServer server = null;
+		LuaDebugServer server = new LuaDebugServer(new LuaDebugServerConnectionTCP(controlPort));
 		try {
-			server = new LuaDebugServer(new LuaDebugServerConnectionTCP(controlPort));
-			//server = new LuaDebugServer(controlHost, controlPort, eventPort);
-
-		} catch (IOException e) {
-			throw new DebugException(new Status(IStatus.ERROR, DebugPlugin
-					.getUniqueIdentifier(), "Could not connect to RemDebug", e));
+			server.acceptConnection();
+			// connection errors are handled using the return status of the job and end up in the error log
+		} catch (InterruptedException e) {
+			// not expected to happen
+			throw new DebugException(new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, DebugException.INTERNAL_ERROR, "Interrupted", e));
 		}
+		
+		if (server.isConnected()) {
+			if (remoteDbgEnabled) {
+				// now that we have a connection and know that there is a remote process, create the object that represents it
+				// (I'm not sure if this is really needed, it is asked whether it's terminated in a few places but it seems to me we could do without it)
+				proc = new RemoteProcess(launch, "Remote Lua Debugger");
+			}
+			assert proc != null;
 
-		// if in debug mode, create a debug target
-		if (mode.equals(ILaunchManager.DEBUG_MODE)) {
-			IDebugTarget target = new LuaDebugTarget(launch, proc, server);
-			launch.addDebugTarget(target);
+			// if in debug mode, create a debug target
+			if (mode.equals(ILaunchManager.DEBUG_MODE)) {
+				IDebugTarget target = new LuaDebugTarget(launch, proc, server);
+				launch.addDebugTarget(target);
+			}
+		}
+		else {
+			// this causes the failed launch to be removed from the list since it is empty
+			monitor.setCanceled(true);
 		}
 	}
 

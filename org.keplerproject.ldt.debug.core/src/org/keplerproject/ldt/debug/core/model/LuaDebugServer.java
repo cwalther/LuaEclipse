@@ -3,49 +3,24 @@
  */
 package org.keplerproject.ldt.debug.core.model;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
-
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.debug.core.DebugException;
 import org.eclipse.debug.core.model.IDebugTarget;
+import org.keplerproject.ldt.debug.core.LuaDebuggerPlugin;
 
 /**
  * @author jasonsantos
  */
 public class LuaDebugServer {
-//	String					fHost;
-//	int						fControlPort;
-//	int						fEventPort;
 	LuaDebugServerConnection	fConnection;
 
 	private LuaDebugElement	fElement;
 
-	// sockets to communicate with VM
-//	private ServerSocket	fRemdebugServer;
-//	private Socket			fRemdebugSocket;
-//	private Socket			fRemdebugEventSocket;
-//	private PrintWriter		fRequestWriter;
-//	private BufferedReader	fRequestReader;
-
-	// reader for event data
-//	private ServerSocket	fEventServer;
-//	private BufferedReader	fEventReader;
-
-//	private boolean			fStarted;
-//	private boolean			fCouldntStart;
-//	private boolean			fListening;
-
-	private final Job		fRequestJob	= new Job("Starting debug server") {
+	private final Job		fRequestJob	= new Job("Waiting for RemDebug to connect") {
 		@Override
 		protected IStatus run(IProgressMonitor monitor) {
 
@@ -53,17 +28,29 @@ public class LuaDebugServer {
 				start();
 
 				return Status.OK_STATUS;
-			} catch (DebugException e) {
-				e.printStackTrace();
 			} catch (IOException e) {
 				e.printStackTrace();
+				return new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, "Could not connect to RemDebug", e);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+				return new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, "Could not connect to RemDebug", e);
 			}
-
-			terminate();
-			if (fElement != null) { //fElement may not have been created yet - this race condition is probably a bug and ignoring it not the correct solution
-				fElement.getLuaDebugTarget().terminated();
+		}
+	};
+	
+	private final Job		fSubscriptionJob = new Job("Sending subscription request") {
+		@Override
+		protected IStatus run(IProgressMonitor monitor) {
+			String result = "";
+			try {
+				result = fConnection.sendEventSubscriptionRequest();
+			} catch (IOException e) {
+				return new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, "Error sending subscription request", e);
 			}
-			return Status.CANCEL_STATUS;
+			if (!result.startsWith("200")) {
+				return new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, "Client couldn't process subscription request: " + result);
+			}
+			return Status.OK_STATUS;
 		}
 	};
 
@@ -95,72 +82,48 @@ public class LuaDebugServer {
 				}
 			} catch (IOException e) {
 				target.terminated();
-			} /*catch (DebugException e) {
-				System.out.println("Error receiving event:" + e.getMessage());
-				target.terminated();
-			}*/
+			}
 			terminate();
 			return Status.OK_STATUS;
 		}
 	};
 
-	public LuaDebugServer(LuaDebugServerConnection connection)
-			throws DebugException, IOException {
+	public LuaDebugServer(LuaDebugServerConnection connection) {
 
-		//fControlPort = controlPort;
-		//fEventPort = eventPort;
-		//fHost = host;
 		fConnection = connection;
 
-		//fRequestJob.setSystem(true);
+		fSubscriptionJob.setSystem(true);
 		fEventsJob.setSystem(true);
-
+	}
+	
+	public void acceptConnection() throws InterruptedException {
 		fRequestJob.schedule();
+		fRequestJob.join();
 	}
 
 	/**
-	 * @throws DebugException
+	 * @throws IOException
+	 * @throws InterruptedException 
 	 */
-	private void start() throws DebugException, IOException {
+	private void start() throws IOException, InterruptedException {
+		
+		//FIXME handle partial failure
 
-		try {
-			fConnection.acceptRequestConnection();
-		} catch (SocketTimeoutException e) { //and probably others...
-//			fCouldntStart = true;
-			throw e;
-		}
-
-//		fStarted = true;
+		fConnection.acceptRequestConnection();
+		
+		// The subscription request should only be sent after we have started accepting the event connection - how to ensure this?? Running it in a separate job hopefully gets us a little closer, but the race condition still exists.
+		fSubscriptionJob.schedule();
 
 		fConnection.acceptEventConnection();
+		
+		fSubscriptionJob.join();
 
 		fEventsJob.schedule();
 	}
 
 	public void register(IDebugTarget target) throws DebugException {
-		try {
-
-			fElement = new LuaDebugElement(target);
-			/*
-			 * TODO create several event ports for multithreading debuggers
-			 */
-			fConnection.waitForRequestConnection();
-			//FIXME what if it fails?
-			
-			//FIXME wait until the start job is accepting an event connection
-			
-			String result = fConnection.sendEventSubscriptionRequest();
-
-			if (!result.startsWith("200"))
-				throw new IOException("Can't connect to event port");
-			
-			fConnection.waitForEventConnection();
-
-		} catch (UnknownHostException e) {
-			fElement.requestFailed("Unable to connect to Remdebug", e);
-		} catch (IOException e) {
-			fElement.requestFailed("Unable to connect to Remdebug", e);
-		}
+		assert fConnection.isConnected();
+		fElement = new LuaDebugElement(target);
 	}
 
 	/*
@@ -171,6 +134,10 @@ public class LuaDebugServer {
 
 	public String getModelIdentifier() {
 		return fElement.getDebugTarget().getModelIdentifier();
+	}
+	
+	public boolean isConnected() {
+		return fConnection.isConnected();
 	}
 
 	public String sendRequest(String request) throws IOException {

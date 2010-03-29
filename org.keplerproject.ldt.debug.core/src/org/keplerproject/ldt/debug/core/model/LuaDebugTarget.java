@@ -78,6 +78,8 @@ public class LuaDebugTarget extends LuaDebugElement implements IDebugTarget,
 		breakpointManager.addBreakpointManagerListener(this);
 
 		installDeferredBreakpoints();
+		
+		//FIXME I have the impression that Eclipse expects this method to return immediately, while in the current RemDebug implementation it blocks until the Lua program next stops. While we're blocking here, the debug target doesn't appear in the list yet, and e.g. breakpoints set during that time will not take effect!
 		resume();
 
 	}

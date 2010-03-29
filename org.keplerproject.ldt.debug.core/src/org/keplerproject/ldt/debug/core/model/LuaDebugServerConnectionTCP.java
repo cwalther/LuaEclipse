@@ -7,6 +7,11 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 
+/**
+ * 
+ * @author Christian Walther <walther@indel.ch>, Indel AG
+ *
+ */
 public class LuaDebugServerConnectionTCP extends LuaDebugServerConnection {
 
 	int						fControlPort;
@@ -35,11 +40,6 @@ public class LuaDebugServerConnectionTCP extends LuaDebugServerConnection {
 		}
 		finally {
 			remdebugServer.close();
-			
-			synchronized (fRequestConnectionReadyCondition) {
-				fRequestConnectionReady = true;
-				fRequestConnectionReadyCondition.notify();
-			}
 		}
 	}
 
@@ -55,11 +55,6 @@ public class LuaDebugServerConnectionTCP extends LuaDebugServerConnection {
 		}
 		finally {
 			eventServer.close();
-		
-			synchronized (fEventConnectionReadyCondition) {
-				fEventConnectionReady = true;
-				fEventConnectionReadyCondition.notify();
-			}
 		}
 	}
 
@@ -70,6 +65,13 @@ public class LuaDebugServerConnectionTCP extends LuaDebugServerConnection {
 		if (fRemdebugSocket != null) fRemdebugSocket.close();
 		if (fEventReader != null) fEventReader.close();
 		if (fRemdebugEventSocket != null) fRemdebugEventSocket.close();
+		fRequestReader = null;
+		fEventReader = null;
+	}
+
+	@Override
+	public boolean isConnected() {
+		return fRequestReader != null && fEventReader != null;
 	}
 
 	@Override
