@@ -747,14 +747,7 @@ local function debugger_loop(server)
                 end)
                 dprint'parameters'
                 table.foreach(outparams, dprint)
-                local success
-                local function callFunc()
-                    return commands[operation](server, unpack(outparams))
-                end
-                success, result = xpcall(callFunc, grabStacktrace)
-                if not success then
-                    print("Error in debug loop:", operation, result, stacktrace)
-                end
+                result = commands[operation](server, unpack(outparams))
 
                 dprint('r',result)
             end
