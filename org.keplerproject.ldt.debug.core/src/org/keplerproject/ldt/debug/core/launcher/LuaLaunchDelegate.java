@@ -34,7 +34,9 @@ import org.eclipse.debug.core.model.IProcess;
 import org.eclipse.debug.core.model.IStreamsProxy;
 import org.keplerproject.ldt.debug.core.LuaDebuggerPlugin;
 import org.keplerproject.ldt.debug.core.model.LuaDebugServer;
+import org.keplerproject.ldt.debug.core.model.LuaDebugServerConnection;
 import org.keplerproject.ldt.debug.core.model.LuaDebugServerConnectionTCP;
+import org.keplerproject.ldt.debug.core.model.LuaDebugServerConnectionUDP;
 import org.keplerproject.ldt.debug.core.model.LuaDebugTarget;
 import org.keplerproject.ldt.internal.launching.LuaInterpreter;
 import org.keplerproject.ldt.internal.launching.LuaRuntime;
@@ -63,6 +65,7 @@ public class LuaLaunchDelegate implements ILaunchConfigurationDelegate {
 		IProject project = myWorkspaceRoot.getProject(projectName);
 		
 		boolean remoteDbgEnabled = configuration.getAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_ENABLED_ATTRIBUTE, false);
+		String remoteDbgTransport = configuration.getAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE, "TCP");
 		int remoteDbgPort = configuration.getAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_PORT_ATTRIBUTE, 8171);
 		
 		// TODO obtain host and ports from configuration
@@ -130,7 +133,17 @@ public class LuaLaunchDelegate implements ILaunchConfigurationDelegate {
 					"Standard Lua Remdebug Engine");
 		}
 		
-		LuaDebugServer server = new LuaDebugServer(new LuaDebugServerConnectionTCP(controlPort));
+		LuaDebugServerConnection connection;
+		if (remoteDbgTransport.equals("TCP")) {
+			connection = new LuaDebugServerConnectionTCP(controlPort);
+		}
+		else if (remoteDbgTransport.equals("UDP")) {
+			connection = new LuaDebugServerConnectionUDP(controlPort);
+		}
+		else {
+			throw new DebugException(new Status(IStatus.ERROR, LuaDebuggerPlugin.PLUGIN_ID, DebugException.INTERNAL_ERROR, "Unsupported transport '" + remoteDbgTransport + "'", null));
+		}
+		LuaDebugServer server = new LuaDebugServer(connection);
 		try {
 			server.acceptConnection();
 			// connection errors are handled using the return status of the job and end up in the error log

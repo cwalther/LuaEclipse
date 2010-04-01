@@ -33,6 +33,9 @@ public class LuaDebuggerPlugin extends Plugin {
 	public static final String			LUA_REMOTE_DBG_ENABLED_ATTRIBUTE	= ID_LUA_DEBUG_MODEL
 																					+ ".LUA_REMOTE_DBG_ENABLED_ATTRIBUTE";
 	
+	public static final String			LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE	= ID_LUA_DEBUG_MODEL
+																					+ ".LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE";
+	
 	public static final String			LUA_REMOTE_DBG_PORT_ATTRIBUTE		= ID_LUA_DEBUG_MODEL
 																					+ ".LUA_REMOTE_DBG_PORT_ATTRIBUTE";
 

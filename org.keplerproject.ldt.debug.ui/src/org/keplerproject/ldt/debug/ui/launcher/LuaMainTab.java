@@ -29,6 +29,7 @@ import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Text;
@@ -98,6 +99,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 		public void remoteDbgSelected(boolean isEnabled) {
 			mainGroup.setEnabled(!isEnabled);
 			argsGroup.setEnabled(!isEnabled);
+			remoteDbgTransportCombo.setEnabled(isEnabled);
 			remoteDbgText.setEnabled(isEnabled);
 		}
 		
@@ -106,6 +108,8 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 				browseLuaProjects();
 			} else if (e.widget == remoteDbgBox) {
 				remoteDbgSelected(remoteDbgBox.getSelection());
+				updateLaunchConfigurationDialog();
+			} else if (e.widget == remoteDbgTransportCombo) {
 				updateLaunchConfigurationDialog();
 			} else {
 				browseLuaScripts();
@@ -131,7 +135,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 	private Button					fProjButton;
 
 	private Button 					remoteDbgBox;
-	
+	private Combo					remoteDbgTransportCombo;
 	private Text 					remoteDbgText;
 	
 	private Group projectGroup;
@@ -195,12 +199,15 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 		fArgsText = SWTFactory.createSingleText(argsGroup, 1);
 		fArgsText.addModifyListener(fArgsListener);
 		
-		remoteDbgGroup = SWTFactory.createGroup(parent, REMOTE_DBG_TITLE, 1, 1, GridData.FILL_HORIZONTAL);
-		remoteDbgBox = SWTFactory.createCheckButton(remoteDbgGroup, "Enable remote debug", null, false, 0);
-		SWTFactory.createLabel(remoteDbgGroup, "TCP Port", 1);
+		remoteDbgGroup = SWTFactory.createGroup(parent, REMOTE_DBG_TITLE, 2, 1, GridData.FILL_HORIZONTAL);
+		remoteDbgBox = SWTFactory.createCheckButton(remoteDbgGroup, "Enable remote debug", null, false, 2);
+		SWTFactory.createLabel(remoteDbgGroup, "Transport", 1);
+		remoteDbgTransportCombo = SWTFactory.createCombo(remoteDbgGroup, SWT.READ_ONLY, 1, new String[] {"TCP", "UDP"});
+		SWTFactory.createLabel(remoteDbgGroup, "Port", 1);
 		remoteDbgText = SWTFactory.createSingleText(remoteDbgGroup, 1);
 		fRemoteDbgListener = new WidgetListener(remoteDbgText);
 		remoteDbgBox.addSelectionListener(fRemoteDbgListener);
+		remoteDbgTransportCombo.addSelectionListener(fRemoteDbgListener);
 		fArgsText.addModifyListener(fArgsListener);
 	}
 
@@ -250,6 +257,9 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 			boolean remoteDbgEnabled = configuration.getAttribute(
 					LuaDebuggerPlugin.LUA_REMOTE_DBG_ENABLED_ATTRIBUTE, false);
 			
+			String remoteDbgTransport = configuration.getAttribute(
+					LuaDebuggerPlugin.LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE, "TCP");
+			
 			int remoteDbgPort = configuration.getAttribute(
 					LuaDebuggerPlugin.LUA_REMOTE_DBG_PORT_ATTRIBUTE, 8171);
 			
@@ -263,6 +273,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 				fArgsText.setText(args);
 			}
 			remoteDbgBox.setSelection(remoteDbgEnabled);
+			remoteDbgTransportCombo.setText(remoteDbgTransport);
 			remoteDbgText.setText(""+remoteDbgPort);
 			fRemoteDbgListener.remoteDbgSelected(remoteDbgEnabled);
 			
@@ -282,6 +293,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 		String script = fMainText.getText().trim();
 		String args = fArgsText.getText().trim();
 		boolean remoteDbgEnabled = remoteDbgBox.getSelection();
+		String remoteDbgTransport = remoteDbgTransportCombo.getText();
 		String remoteDbgPortString = remoteDbgText.getText();
 		int remoteDbgPort = Integer.parseInt(remoteDbgPortString);
 
@@ -304,7 +316,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 				args);
 		
 		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_ENABLED_ATTRIBUTE, remoteDbgEnabled);
-
+		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE, remoteDbgTransport);
 		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_PORT_ATTRIBUTE, remoteDbgPort);
 		
 		// perform resource mapping for contextual launch
@@ -329,6 +341,7 @@ public class LuaMainTab extends AbstractLaunchConfigurationTab implements
 
 	public void setDefaults(ILaunchConfigurationWorkingCopy configuration) {
 		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_PORT_ATTRIBUTE, false);
+		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_TRANSPORT_ATTRIBUTE, "TCP");
 		configuration.setAttribute(LuaDebuggerPlugin.LUA_REMOTE_DBG_PORT_ATTRIBUTE, 8171);
 	}
 
