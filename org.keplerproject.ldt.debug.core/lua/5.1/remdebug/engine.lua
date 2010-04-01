@@ -10,6 +10,7 @@
 local CLIENT_LAUNCH_MODE = CLIENT_LAUNCH_MODE
 
 local doDebugPrint = false
+local doDebugPrintUdp = true
 
 io.stdout:setvbuf("no")
 
@@ -48,6 +49,15 @@ local function dprint(...)
     end
 end
 
+local repr, datagramrepr, udprint
+if doDebugPrintUdp then
+	function repr(s) return (string.gsub(string.gsub(string.format("%q", s), "\\\n", "\\n"), "[%c\160-\255]", function(c) return string.format("\\%.03d", string.byte(c)) end)) end
+	function datagramrepr(dg) return string.format("%s len %d header %d %d %d %d", repr(dg), #dg, string.byte(dg, 1) or -1, string.byte(dg, 2) or -1, string.byte(dg, 3) or -1, string.byte(dg, 4) or -1) end
+	udprint = print
+else
+	udprint = function() end
+end
+
 math.randomseed(math.floor(os.clock() * 1000000))
 local main = "main"..math.random(1,65536)
 local coro_debugger
@@ -64,8 +74,12 @@ local stack_depth = {[main]=0}
 local running_thread = main
 local nil_value = {}
 
-local controller_host = "localhost"
-local controller_port = 8171
+local connectionConfiguration = {
+--	transport = "TCP",
+	transport = "UDP",
+	host = "localhost",
+	port = 8171
+}
 
 local stacktrace = ""
 local errorCallstack = {}
@@ -89,6 +103,149 @@ function url.unescape(s)
     end)
     return string.gsub(val, "+", " ")
 end
+
+-- - Connection Factories
+-- currently, connection types "TCP" and "UDP" are supported, and implemented right here
+-- in the future, we might put each into its own module and only require() the requested one (e.g. if any hypothetical type that does not need the socket module were introduced, we could eliminate the dependency of this module on it that way)
+
+local function createUdpConnection(host, port)
+	udprint("UDP> connecting to " .. host .. ":" .. port)
+	local sock, err = socket.udp()
+	if sock == nil then return nil, err end
+	local res
+	res, err = sock:setpeername(host, port)
+	if res == nil then sock:close() return nil, err end
+	
+	sock:send(string.char(1)) --SYN
+	sock:settimeout(5.0)
+	udprint("UDP> SYN sent")
+	res = nil
+	while res ~= string.char(2) do --ACK
+		res, err = sock:receive()
+		udprint("UDP> " .. (res and "received " .. datagramrepr(res) or "receive error: " .. err))
+		if res == nil then sock:close() return nil, err end
+	end
+	udprint("UDP> got ACK, connected")
+	
+	local serialcounter = 0
+	local self
+	-- sock, serialcounter, and self are upvalues for the functions below
+	self = {
+		send = function(dummyself, line, dgramtype)
+			if string.sub(line, -1) == "\n" then
+				line = string.sub(line, 1, -2)
+			end
+			if not dgramtype then dgramtype = 4 end --DATA
+			local myip, myport = sock:getsockname()
+			local remoteip, remoteport = sock:getpeername()
+			udprint("UDP> " .. string.format("%s:%d -> %s:%d sending %s", myip, myport, remoteip, remoteport, repr(line)))
+			local serial = serialcounter
+			serialcounter = serialcounter + 1
+			local n = math.floor((#line + 508-1)/508)
+			sock:settimeout(2.0)
+			for i = 0, n-1 do
+				local outpacket = string.char(dgramtype, i, n, serial)
+					.. string.sub(line, i*508+1, (i+1)*508)
+				sock:send(outpacket)
+				udprint("    UDP> sent " .. datagramrepr(outpacket))
+				local ok = false
+				while not ok do
+					local inpacket, err = sock:receive()
+					udprint("    UDP> " .. (inpacket and "received " .. datagramrepr(inpacket) or "receive error: " .. err))
+					if inpacket then
+						if #inpacket == 4
+							and string.byte(inpacket, 1) == 2 --ACK
+							and string.byte(inpacket, 2) == i
+							and string.byte(inpacket, 3) == n
+							and string.byte(inpacket, 4) == serial
+						then
+							ok = true
+						-- else we got something, but not the expected ACK, discard it and read again
+						-- (this can get us in an infinite loop if the other side is trying to send at the same time, but that shouldn't happen in our application)
+						end
+					else
+						-- got nothing within timeout, send again
+						sock:send(outpacket)
+						udprint("    UDP> resent " .. datagramrepr(outpacket))
+					end
+				end
+			end
+			udprint("UDP> " .. string.format("%s:%d -> %s:%d sent", myip, myport, remoteip, remoteport))
+		end,
+		
+		receive = function(dummyself)
+			local myip, myport = sock:getsockname()
+			local remoteip, remoteport = sock:getpeername()
+			udprint("UDP> " .. string.format("%s:%d <- %s:%d receiving", myip, myport, remoteip, remoteport))
+			sock:settimeout(nil)
+			local response = ""
+			local ok
+			local closed = false
+			local n = 1
+			local serial
+			local i = 0
+			while i < n do
+				ok = false
+				local inpacket
+				while not ok do
+					inpacket = sock:receive()
+					udprint("    UDP> " .. (inpacket and "received " .. datagramrepr(inpacket) or "receive error"), i, n)
+					if inpacket and #inpacket >= 4
+						and (string.byte(inpacket, 1) == 4 --DATA
+							or string.byte(inpacket, 1) == 3) --FIN
+						and string.byte(inpacket, 2) == i
+					then
+						if i == 0 then
+							n = string.byte(inpacket, 3)
+							serial = string.byte(inpacket, 4)
+							ok = true
+						else
+							ok = (string.byte(inpacket, 3) == n
+								and string.byte(inpacket, 4) == serial)
+						end
+						closed = (ok and string.byte(inpacket, 1) == 3) --FIN
+					end
+				end
+				response = response .. string.sub(inpacket, 5, -1)
+				sock:send(string.char(2, i, n, serial))
+				udprint("    UDP> sent " .. datagramrepr(string.char(2, i, n, serial)))
+				i = i + 1
+			end
+			udprint("UDP> " .. string.format("%s:%d <- %s:%d received %s", myip, myport, remoteip, remoteport, repr(response)))
+			if closed then
+				sock:close()
+				return nil, "connection closed"
+			end
+			return response
+		end,
+		
+		close = function(dummyself)
+			self:send("", 3) --FIN
+			sock:close()
+		end
+	}
+	return self
+
+end
+
+local connectionFactories = {
+	["TCP"] = {
+		makeControlConnection = function(config)
+			return socket.connect(config.host, config.port)
+		end,
+		makeEventConnection = function(config, port)
+			return socket.connect(config.host, port)
+		end
+	},
+	["UDP"] = {
+		makeControlConnection = function(config)
+			return createUdpConnection(config.host, config.port)
+		end,
+		makeEventConnection = function(config, port)
+			return createUdpConnection(config.host, port)
+		end
+	}
+}
 
 --function addBreakpointPlugin(plugin)
 --    table.insert(breakpointPlugins, plugin)
@@ -375,7 +532,8 @@ local EXECUTION_ERROR_ = "401 Error in Execution "
 local eventSink
 
 function commands.createEventSocket(server, port)
-    eventSink = socket.connect(controller_host, port)
+	local factory = connectionFactories[connectionConfiguration.transport]
+    eventSink = factory and factory.makeEventConnection(connectionConfiguration, port)
     if eventSink then
         return SUCCESS
     else
@@ -636,7 +794,8 @@ function commands.stack(server)
     local s = STACK_DUMP_ .. table.concat(stack, '#') .. '\n'
     dprint("returning stack message:", s)
 
-    eventSink:send(s) 
+    -- Why is this being sent to the event sink too? As far as I can see nobody listens to it on the Java side (no stack frames are ever registered as event listeners, so that code seems dead), and things seem to work just fine without it. Is this used by other RemDebug servers? It's a problem for me because on the UDP connection, I can't send a new event while the previous one is still being acted on and the event handler thread is not receiving again yet.
+    --eventSink:send(s) 
 
     return s
 end
@@ -770,12 +929,11 @@ coro_debugger = coroutine.create(debugger_loop)
 -- Configures the engine
 --
 function config(tab)
-    if tab.host then
-        controller_host = tab.host
-    end
-    if tab.port then
-        controller_port = tab.port
-    end
+	for i, k in ipairs({"transport", "host", "port"}) do
+		if tab[k] then
+			connectionConfiguration[k] = tab[k]
+		end
+	end
 end
 
 local function setHook(hookFunc)
@@ -804,12 +962,13 @@ end
 --
 function start()
     pcall(require, "remdebug.config")
-    dprint('Connecting...', controller_host, controller_port)
-    for i = 1,60 do
+    dprint('Connecting...', connectionConfiguration.host, connectionConfiguration.port)
+    for i = 1,20 do --60 do
         if i % 3 == 0 then
-            print("Connecting to debug client...", controller_host, controller_port)
+            print("Connecting to debug client...", connectionConfiguration.host, connectionConfiguration.port)
         end
-        local server = socket.connect(controller_host, controller_port)
+        local factory = assert(connectionFactories[connectionConfiguration.transport], "unknown transport '" .. connectionConfiguration.transport .. "'")
+        local server, msg = factory.makeControlConnection(connectionConfiguration)
         if server then
             dprint'Success!'
             setHook(debug_hook)
