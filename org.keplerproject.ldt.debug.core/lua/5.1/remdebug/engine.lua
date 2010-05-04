@@ -16,9 +16,27 @@ if io then io.stdout:setvbuf("no") end
 
 --pcall(require, "luarocks.require")
 
+-- The platformsupport module, if any, must implement the following functions:
+-- - transformFileName(file):
+--   Converts a file name as supplied by debug.getinfo(...).source (without the leading '@') to
+--   the form used in the communication with the controller. The default implementation prepends
+--   the current directory to names that look like relative paths and hence is only suitable for
+--   platforms that have a file system, the concept of a current directory, and an implementation
+--   of lfs.
+local ok, platformsupport = pcall(require, "remdebug.platformsupport")
+if not ok then
+	platformsupport = {}
+	local lfs = require "lfs"
+	function platformsupport.transformFileName(file)
+		cwd = lfs.currentdir()
+		if cwd and string.sub(file, 1, 1) ~= "/" then
+			return cwd.."/"..file
+		end
+		return file
+	end
+end
 local socket = require"socket"
 --local url = require"socket.url"
-local lfs = require"lfs"
 local debug = require"debug"
 
 local _g      = _G
@@ -373,11 +391,7 @@ end
 
 local function getFileName(f)
     if string.find(f, "@") == 1 then
-        local file = string.sub(f, 2)
-        if cwd and string.sub(file, 1, 1) ~= "/" then
-            return cwd.."/"..file
-        end
-        return file
+        return platformsupport.transformFileName(string.sub(f, 2))
     else
         return nil
     end
@@ -1054,7 +1068,6 @@ end
 if not CLIENT_LAUNCH_MODE then
     if not launchCount then
         launchCount = 1
-        cwd = lfs.currentdir()
         start()
         local thread = coroutine.running() or main
         stack_depth[thread] = 4
