@@ -12,7 +12,7 @@ local CLIENT_LAUNCH_MODE = CLIENT_LAUNCH_MODE
 local doDebugPrint = false
 local doDebugPrintUdp = true
 
-io.stdout:setvbuf("no")
+if io then io.stdout:setvbuf("no") end
 
 --pcall(require, "luarocks.require")
 
