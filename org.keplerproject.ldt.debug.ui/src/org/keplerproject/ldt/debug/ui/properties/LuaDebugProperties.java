@@ -11,17 +11,22 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.dialogs.PropertyPage;
+import org.keplerproject.ldt.debug.core.properties.PropertyNames;
 
 public class LuaDebugProperties extends PropertyPage {
 
 	private static final String PATH_TITLE = "Path:";
 	private static final String OWNER_TITLE = "&Owner:";
+	private static final String REMOTENAME_TITLE = "Remote file name:";
+	
 	private static final String OWNER_PROPERTY = "OWNER";
+	
 	private static final String DEFAULT_OWNER = "John Doe";
 
 	private static final int TEXT_FIELD_WIDTH = 50;
 
 	private Text ownerText;
+	private Text remotenameText;
 
 	/**
 	 * Constructor for SamplePropertyPage.
@@ -40,6 +45,18 @@ public class LuaDebugProperties extends PropertyPage {
 		// Path text field
 		Text pathValueText = new Text(composite, SWT.WRAP | SWT.READ_ONLY);
 		pathValueText.setText(((IResource) getElement()).getFullPath().toString());
+		
+		// Remote file name
+		Label remotenameLabel = new Label(composite, SWT.NONE);
+		remotenameLabel.setText(REMOTENAME_TITLE);
+		remotenameText = new Text(composite, SWT.SINGLE | SWT.BORDER);
+		remotenameText.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+		try {
+			String remotename = ((IResource)getElement()).getPersistentProperty(PropertyNames.REMOTENAME_PROPERTY);
+			if (remotename != null) {
+				remotenameText.setText(remotename);
+			}
+		} catch (CoreException e) {}
 	}
 
 	private void addSeparator(Composite parent) {
@@ -106,8 +123,11 @@ public class LuaDebugProperties extends PropertyPage {
 	}
 
 	protected void performDefaults() {
-		// Populate the owner text field with the default value
+		// documentation says we should call the superclass
+		super.performDefaults();
+		// Populate the text fields with default values
 		ownerText.setText(DEFAULT_OWNER);
+		remotenameText.setText("");
 	}
 	
 	public boolean performOk() {
@@ -117,6 +137,13 @@ public class LuaDebugProperties extends PropertyPage {
 				new QualifiedName("", OWNER_PROPERTY),
 				ownerText.getText());
 		} catch (CoreException e) {
+			return false;
+		}
+		try {
+			((IResource)getElement()).setPersistentProperty(
+					PropertyNames.REMOTENAME_PROPERTY, remotenameText.getText());
+		} catch (CoreException e) {
+			//FIXME denying to close the dialog is probably not the right thing to do here, as there are legitimate reasons why it can fail
 			return false;
 		}
 		return true;

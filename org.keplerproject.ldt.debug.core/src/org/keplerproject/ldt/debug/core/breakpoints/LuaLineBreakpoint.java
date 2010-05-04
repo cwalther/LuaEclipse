@@ -21,6 +21,7 @@ import org.keplerproject.ldt.debug.core.LuaDebuggerPlugin;
 import org.keplerproject.ldt.debug.core.model.ILuaEventListener;
 import org.keplerproject.ldt.debug.core.model.LuaDebugTarget;
 import org.keplerproject.ldt.debug.core.model.LuaDebugThread;
+import org.keplerproject.ldt.debug.core.properties.PropertyNames;
 
 /**
  * @author jasonsantos
@@ -132,10 +133,13 @@ public class LuaLineBreakpoint extends LineBreakpoint implements
 	}
 
 	protected void createRequest(LuaDebugTarget target) throws CoreException {
-		String fileName = null;
+		IFile file = getSourceFile();
+		String fileName = file.getPersistentProperty(PropertyNames.REMOTENAME_PROPERTY);
+		if (fileName == null || fileName.length() == 0) {
+			fileName = file.getLocation().toPortableString();
+		}
 		try {
-			fileName = URLEncoder.encode(getSourceFile().getLocation()
-					.toPortableString(), "UTF-8");
+			fileName = URLEncoder.encode(fileName, "UTF-8");
 		} catch (UnsupportedEncodingException e1) { }
 		
 		try {
@@ -156,11 +160,13 @@ public class LuaLineBreakpoint extends LineBreakpoint implements
 	}
 
 	protected void clearRequest(LuaDebugTarget target) throws CoreException {
-
-		String fileName = null;
+		IFile file = getSourceFile();
+		String fileName = file.getPersistentProperty(PropertyNames.REMOTENAME_PROPERTY);
+		if (fileName == null || fileName.length() == 0) {
+			fileName = file.getLocation().toPortableString();
+		}
 		try {
-			fileName = URLEncoder.encode(getSourceFile().getLocation()
-					.toPortableString(), "UTF-8");
+			fileName = URLEncoder.encode(fileName, "UTF-8");
 		} catch (UnsupportedEncodingException e1) { }
 		
 		try {
