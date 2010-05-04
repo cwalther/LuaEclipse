@@ -134,7 +134,8 @@ local function createUdpConnection(host, port)
 	res, err = sock:setpeername(host, port)
 	if res == nil then sock:close() return nil, err end
 	
-	sock:send(string.char(1)) --SYN
+	res, err = sock:send(string.char(1)) --SYN
+	if res == nil then sock:close() return nil, err end
 	sock:settimeout(5.0)
 	udprint("UDP> SYN sent")
 	res = nil
@@ -977,12 +978,14 @@ end
 function start()
     pcall(require, "remdebug.config")
     dprint('Connecting...', connectionConfiguration.host, connectionConfiguration.port)
+    local msg
     for i = 1,20 do --60 do
         if i % 3 == 0 then
             print("Connecting to debug client...", connectionConfiguration.host, connectionConfiguration.port)
         end
         local factory = assert(connectionFactories[connectionConfiguration.transport], "unknown transport '" .. connectionConfiguration.transport .. "'")
-        local server, msg = factory.makeControlConnection(connectionConfiguration)
+        local server
+        server, msg = factory.makeControlConnection(connectionConfiguration)
         if server then
             dprint'Success!'
             setHook(debug_hook)
