@@ -994,6 +994,11 @@ function start()
             step_level [thread] = 0
             -- Launch the network coroutine that waits for a command from the debug client 
             local result = coroutine.resume(coro_debugger, server)
+            if CLIENT_LAUNCH_MODE then
+                local thread = coroutine.running() or main
+                stack_depth[thread] = 4
+                step_level [thread] = 0
+            end
             return result
         end
         socket.sleep(1)
