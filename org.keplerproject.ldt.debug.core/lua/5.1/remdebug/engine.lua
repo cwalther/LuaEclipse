@@ -74,6 +74,8 @@ if doDebugPrintUdp then
 	udprint = print
 else
 	udprint = function() end
+	datagramrepr = function() return "" end
+	repr = function() return "" end
 end
 
 math.randomseed(math.floor(os.clock() * 1000000))
